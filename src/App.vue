@@ -432,16 +432,18 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useQuasar } from 'quasar'
 import axios from 'axios'
 
 const $q = useQuasar()
 
+let ws = null
+
 // Configuración de la API
 const API_CONFIG = {
-  baseURL: 'https://virtualapidev.thebiznation.net/virtual/api/v1',
-  token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NzI4OSwiZGF0ZSI6MTQyLCJkYXRhIjp7ImVtYWlsIjoiZGVzYXJyb2xsbzQwQGdtYWlsLmNvbSJ9LCJpYXQiOjE3NjcxMjc3ODEsImV4cCI6MTc2NzE3MDk4MX0.J0SNZu8w7Q9anW3OP6fXbTSd1q1lNFDQ8J2JPZQeAuA',
+  baseURL: 'http://localhost:8083/virtual/api/v1',
+  token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6NzI4OSwiZGF0ZSI6MTg1LCJkYXRhIjp7ImVtYWlsIjoiZGVzYXJyb2xsbzQwQGdtYWlsLmNvbSJ9LCJpYXQiOjE3Njg0ODg3ODQsImV4cCI6MTc2ODUzMTk4NH0.naRpzIBkX12RBcQxwfM-0wlI9-K0ez0DryV9W2hVwaQ',
   idEmpresa: 74
 }
 
@@ -597,7 +599,7 @@ const generarPlan = async () => {
   try {
     const response = await apiClient.post(
       '/plan-negocio/generar',
-      { prompt: generatedPrompt.value },
+      { prompt: generatedPrompt.value, formData: formData.value },
       { params: { idEmpresa: API_CONFIG.idEmpresa } }
     )
 
@@ -686,6 +688,128 @@ const enviarPregunta = async () => {
     chatLoading.value = false
   }
 }
+
+// Función para conectar al WebSocket
+const conectarWebSocket = () => {
+  // Obtener el idUsuario (deberías tenerlo en tu store o contexto de autenticación)
+  // Por ahora uso un placeholder - reemplázalo con tu lógica de autenticación
+  const idUsuario = 7289 // TODO: Obtener del store/auth
+  
+  ws = new WebSocket('ws://localhost:8083')
+  
+  ws.onopen = () => {
+    console.log('Conectado al WebSocket')
+    
+    // Autenticarse enviando el idUsuario
+    ws.send(JSON.stringify({
+      type: 'AUTH',
+      idUsuario: idUsuario
+    }))
+  }
+  
+  ws.onmessage = (event) => {
+    try {
+      const mensaje = JSON.parse(event.data)
+      console.log('Mensaje recibido:', mensaje)
+      
+      // Manejar autenticación exitosa
+      if (mensaje.type === 'AUTH_SUCCESS') {
+        $q.notify({
+          type: 'positive',
+          message: 'Conectado al servidor en tiempo real',
+          icon: 'wifi',
+          position: 'top-right',
+          timeout: 2000
+        })
+      }
+      
+      // Manejar notificación de plan de negocio creado
+      if (mensaje.type === 'PLAN_NEGOCIO_CREADO') {
+        if (mensaje.data.success) {
+          $q.notify({
+            type: 'positive',
+            message: '¡Tu plan de negocios está listo!',
+            caption: 'El plan ha sido generado exitosamente con IA',
+            icon: 'check_circle',
+            position: 'top-right',
+            timeout: 5000,
+            actions: [
+              {
+                label: 'Ver Plan',
+                color: 'white',
+                handler: () => {
+                  // TODO: Navegar a la vista del plan
+                  console.log('Navegar al plan:', mensaje.idEstudiante)
+                }
+              }
+            ]
+          })
+          
+          // Opcional: resetear el formulario
+          // resetForm()
+        } else {
+          $q.notify({
+            type: 'negative',
+            message: 'Error al generar el plan de negocios',
+            caption: mensaje.data.error || 'Error desconocido',
+            icon: 'error',
+            position: 'top-right',
+            timeout: 5000
+          })
+        }
+      }
+    } catch (error) {
+      console.error('Error procesando mensaje WebSocket:', error)
+    }
+  }
+  
+  ws.onerror = (error) => {
+    console.error('Error WebSocket:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Error de conexión en tiempo real',
+      icon: 'wifi_off',
+      position: 'top-right',
+      timeout: 3000
+    })
+  }
+  
+  ws.onclose = () => {
+    console.log('WebSocket desconectado')
+    $q.notify({
+      type: 'warning',
+      message: 'Desconectado del servidor en tiempo real',
+      caption: 'Intentando reconectar...',
+      icon: 'wifi_off',
+      position: 'top-right',
+      timeout: 3000
+    })
+    
+    // Intentar reconectar después de 3 segundos
+    setTimeout(() => {
+      if (ws.readyState === WebSocket.CLOSED) {
+        conectarWebSocket()
+      }
+    }, 3000)
+  }
+}
+
+// Función para desconectar el WebSocket
+const desconectarWebSocket = () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.close()
+  }
+}
+
+// Conectar al montar el componente
+onMounted(() => {
+  conectarWebSocket()
+})
+
+// Desconectar al desmontar el componente
+onUnmounted(() => {
+  desconectarWebSocket()
+})
 </script>
 
 <style scoped>
